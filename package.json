@@ -1,0 +1,14 @@
+{
+  "name": "flow-lend-root",
+  "version": "1.0.0",
+  "description": "Flow Lend - Sistema de Gestão de Empréstimos",
+  "private": true,
+  "scripts": {
+    "build": "cd flow-lend-main && npm install && npm run build",
+    "dev": "cd flow-lend-main && npm install && npm run dev",
+    "install": "cd flow-lend-main && npm install"
+  },
+  "workspaces": [
+    "flow-lend-main"
+  ]
+}
