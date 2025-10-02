@@ -51,10 +51,10 @@ const ConfiguracoesNew = () => {
         if (!logoUrl) {
           toast({
             variant: "destructive",
-            title: "Erro no upload",
-            description: "Não foi possível fazer upload da logo.",
+            title: "Falha no upload da logo",
+            description: "O nome e as cores serão salvos mesmo assim.",
           });
-          return;
+          // Prossegue salvando demais campos
         }
         console.log('✅ Logo enviada:', logoUrl);
       }
@@ -65,10 +65,10 @@ const ConfiguracoesNew = () => {
         if (!faviconUrl) {
           toast({
             variant: "destructive",
-            title: "Erro no upload",
-            description: "Não foi possível fazer upload do favicon.",
+            title: "Falha no upload do favicon",
+            description: "O nome e as cores serão salvos mesmo assim.",
           });
-          return;
+          // Prossegue salvando demais campos
         }
         console.log('✅ Favicon enviado:', faviconUrl);
       }
@@ -97,6 +97,9 @@ const ConfiguracoesNew = () => {
         setLogoFile(null);
         setFaviconFile(null);
         
+        // Disparar evento global para atualizar Layout e outras instâncias
+        window.dispatchEvent(new Event('system-config-updated'));
+
         // Atualizar favicon na página
         if (faviconUrl) {
           const favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;

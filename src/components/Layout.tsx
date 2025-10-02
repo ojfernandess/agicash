@@ -60,11 +60,35 @@ const Layout = ({ children }: LayoutProps) => {
   }, [configReady]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    toast({
-      title: "Sessão encerrada",
-      description: "Até logo!",
-    });
+    try {
+      // Tentativa padrão
+      await supabase.auth.signOut();
+    } catch (e1) {
+      console.warn('signOut padrão falhou, tentando global...', e1);
+      try {
+        await supabase.auth.signOut({ scope: 'global' as any });
+      } catch (e2) {
+        console.warn('signOut global falhou, tentando local...', e2);
+        try {
+          await supabase.auth.signOut({ scope: 'local' as any });
+        } catch (e3) {
+          console.warn('signOut local falhou, aplicando fallback de limpeza...', e3);
+        }
+      }
+    } finally {
+      try {
+        // Fallback: limpar possíveis tokens locais do Supabase
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          if (key.startsWith('sb-') || key.includes('supabase')) {
+            try { localStorage.removeItem(key); } catch {}
+          }
+        }
+      } catch {}
+      toast({ title: "Sessão encerrada", description: "Até logo!" });
+      navigate('/auth');
+    }
   };
 
   const menuItems = [
@@ -100,7 +124,7 @@ const Layout = ({ children }: LayoutProps) => {
             <div className="flex flex-shrink-0 items-center px-4 mb-8">
               {config.logo_url ? (
                 <img 
-                  src={config.logo_url} 
+                  src={`${config.logo_url}${config.logo_url.includes('?') ? '&' : '?'}v=${encodeURIComponent(config.updated_at || '')}`}
                   alt="Logo" 
                   className="h-10 w-auto mr-3 object-contain"
                 />
@@ -112,7 +136,7 @@ const Layout = ({ children }: LayoutProps) => {
                   <DollarSign className="w-6 h-6 text-white" />
                 </div>
               )}
-              <h1 className="text-xl font-bold">{config.system_name}</h1>
+              <h1 className="text-xl font-bold">{config.system_name || ' '}</h1>
             </div>
             <nav className="flex-1 space-y-1 px-2">
               {menuItems.map((item) => {
@@ -153,7 +177,7 @@ const Layout = ({ children }: LayoutProps) => {
         <div className="flex items-center">
           {config.logo_url ? (
             <img 
-              src={config.logo_url} 
+              src={`${config.logo_url}${config.logo_url.includes('?') ? '&' : '?'}v=${encodeURIComponent(config.updated_at || '')}`}
               alt="Logo" 
               className="h-8 w-auto mr-2 object-contain"
             />
@@ -165,7 +189,7 @@ const Layout = ({ children }: LayoutProps) => {
               <DollarSign className="w-5 h-5 text-white" />
             </div>
           )}
-          <h1 className="text-lg font-bold">{config.system_name}</h1>
+          <h1 className="text-lg font-bold">{config.system_name || ' '}</h1>
         </div>
         <div className="flex items-center space-x-2">
           <Button
