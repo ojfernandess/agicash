@@ -314,15 +314,16 @@ const EmprestimosNew = () => {
           y = 20;
         }
       };
-      const writeWrapped = (label: string, value: string, x = 14, maxWidth = 180) => {
-        const text = label ? `${label} ${value || '-'}` : (value || '-');
-        const lines = doc.splitTextToSize(text, maxWidth);
-        lines.forEach((ln: string) => {
-          ensurePage(lineHeight);
-          doc.text(ln, x, y);
-          y += lineHeight;
-        });
-      };
+       const writeWrapped = (label: string, value: string, x = 14, maxWidth = 180) => {
+         const text = label ? `${label} ${value || '-'}` : (value || '-');
+         const lines = doc.splitTextToSize(text, maxWidth);
+         lines.forEach((ln: string) => {
+           ensurePage(lineHeight);
+           doc.setTextColor(0, 0, 0); // Cor preta explícita
+           doc.text(ln, x, y);
+           y += lineHeight;
+         });
+       };
 
       // Header
       doc.setDrawColor(230);
@@ -369,15 +370,16 @@ const EmprestimosNew = () => {
           console.log('Erro ao carregar logo:', e);
         }
       }
-      const titulo = parcelaEspecifica 
-        ? `Comprovante de Vencimento - Parcela ${parcelaEspecifica.numero_parcela}`
-        : 'Comprovante de Vencimento';
-      doc.text(titulo, 105, 22, { align: 'center' });
+       const titulo = parcelaEspecifica 
+         ? `Comprovante de Vencimento - Parcela ${parcelaEspecifica.numero_parcela}`
+         : 'Comprovante de Vencimento';
+       doc.setTextColor(0, 0, 0); // Cor preta explícita
+       doc.text(titulo, 105, 22, { align: 'center' });
 
-      // Dados principais (box)
-      let y = 36;
+      // Dados principais (box) - Layout redesenhado
+      let y = 40;
       doc.setDrawColor(200);
-      doc.rect(10, y - 8, 190, 54);
+      doc.rect(10, y - 8, 190, 70); // Aumentar altura da caixa
       doc.setFontSize(12);
       const pick = (obj: any, keys: string[]) => {
         for (const k of keys) {
@@ -410,19 +412,23 @@ const EmprestimosNew = () => {
         writeWrapped('Valor da Parcela:', `R$ ${Number(parcelaEspecifica.valor_parcela).toFixed(2)}`, 14, 180);
         writeWrapped('Vencimento:', `${formatDate(parcelaEspecifica.data_vencimento)}`, 14, 180);
         writeWrapped('Status:', `${parcelaEspecifica.status || 'pendente'}`, 14, 180);
-      } else {
-        writeWrapped('Valor do Empréstimo:', `R$ ${Number(emprestimo.valor_principal).toFixed(2)}`, 14, 180);
-        writeWrapped('Vencimento:', `${formatDate(emprestimo.data_vencimento)}`, 14, 180);
-        writeWrapped('Juros Mensal:', `${Number(emprestimo.taxa_juros_mensal || 0)}%`, 14, 180);
-        writeWrapped('Juros Diário (Atraso):', `${Number((emprestimo as any).taxa_juros_diaria_atraso || 0)}%`, 14, 180);
-      }
+       } else {
+         writeWrapped('Valor do Empréstimo:', `R$ ${Number(emprestimo.valor_principal).toFixed(2)}`, 14, 180);
+         writeWrapped('Data do Empréstimo:', `${formatDate(emprestimo.data_emprestimo)}`, 14, 180);
+         writeWrapped('Vencimento:', `${formatDate(emprestimo.data_vencimento)}`, 14, 180);
+         writeWrapped('Juros Mensal:', `${Number(emprestimo.taxa_juros_mensal || 0)}%`, 14, 180);
+         writeWrapped('Juros Diário (Atraso):', `${Number((emprestimo as any).taxa_juros_diaria_atraso || 0).toFixed(2)}%`, 14, 180);
+       }
 
-      // Valor pendente em destaque
-      ensurePage(16);
+      // Valor pendente em destaque - Ajustar posicionamento
+      ensurePage(30);
+      y += 5; // Adicionar espaço extra antes da tarja
+      
       doc.setDrawColor(220);
-      doc.setFillColor(250, 250, 250);
-      doc.rect(10, y - 8, 190, 14, 'F');
+      doc.setFillColor(254, 242, 242);
+      doc.rect(10, y - 8, 190, 22, 'F');
       doc.setFontSize(13);
+      doc.setTextColor(0, 0, 0);
       
       if (parcelaEspecifica) {
         const vencParcela = new Date(parcelaEspecifica.data_vencimento);
@@ -432,13 +438,15 @@ const EmprestimosNew = () => {
         doc.text(`Dias em atraso: ${diasAtraso}`, 14, y);
       }
       
-      doc.setFontSize(14);
-      doc.text(`Valor Pendente Atual: R$ ${valorPendente.toFixed(2)}`, 196, y, { align: 'right' });
-      y += 16;
+      doc.setFontSize(16);
+      doc.setTextColor(220, 38, 38);
+      doc.text(`VALOR PENDENTE: R$ ${valorPendente.toFixed(2)}`, 105, y + 8, { align: 'center' });
+      y += 25;
 
       if (emprestimo.parcelado && !parcelaEspecifica) {
         // Tabela de parcelas (apenas se não for parcela específica)
         doc.setFontSize(13);
+        doc.setTextColor(0, 0, 0); // Cor preta explícita
         ensurePage(10);
         doc.text('Parcelas', 14, y); y += 4;
         // Cabeçalho
@@ -459,6 +467,7 @@ const EmprestimosNew = () => {
           const dias = Math.max(0, Math.floor((new Date().getTime() - vencParc.getTime()) / (1000 * 60 * 60 * 24)));
           const taxaDiaria = Number((emprestimo as any).taxa_juros_diaria_atraso || 0) / 100;
           const daily = dias > 0 && taxaDiaria > 0 ? base * taxaDiaria * dias : 0;
+          doc.setTextColor(0, 0, 0); // Cor preta explícita
           doc.text(`#${p.numero_parcela}`, 14, y);
           doc.text(`${base.toFixed(2)}`, 44, y);
           doc.text(`${formatDate(p.data_vencimento)}`, 90, y);
@@ -474,6 +483,7 @@ const EmprestimosNew = () => {
       if (admin?.pix_key) {
         // Seção de pagamento (Pix)
         doc.setFontSize(13);
+        doc.setTextColor(0, 0, 0); // Cor preta explícita
         ensurePage(60);
         doc.text('Pagamento via Pix', 14, y); y += 4;
         doc.setDrawColor(220);
@@ -482,6 +492,7 @@ const EmprestimosNew = () => {
         const chaveLine = `Chave (${admin.pix_tipo || 'pix'}): ${admin.pix_key}`;
         const chaveLines = doc.splitTextToSize(chaveLine, 140);
         chaveLines.forEach((ln: string, i: number) => {
+          doc.setTextColor(0, 0, 0); // Cor preta explícita
           doc.text(ln, 14, y + 10 + i * lineHeight);
         });
         const toDataURL = (qrm as any).toDataURL || (qrm as any).default?.toDataURL;
@@ -495,6 +506,7 @@ const EmprestimosNew = () => {
       doc.setDrawColor(240);
       doc.line(10, 290, 200, 290);
       doc.setFontSize(9);
+      doc.setTextColor(0, 0, 0); // Cor preta explícita
       doc.text('Documento gerado automaticamente pelo sistema.', 105, 295, { align: 'center' });
 
       doc.save(`vencimento_${emprestimo.id}.pdf`);
