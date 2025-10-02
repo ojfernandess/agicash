@@ -12,10 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Calculator, CreditCard, Eye, Trash2, Download } from "lucide-react";
+import { Plus, Calculator, CreditCard, Eye, Trash2, Download, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useParcelamento } from "@/hooks/use-parcelamento";
 import { EmprestimoComParcelamento, ConfiguracaoParcelamento, Parcela } from "@/types/parcelamento";
+import { useSystemConfig as useSystemConfigConfig } from "@/hooks/use-system-config-new";
 
 interface Cliente {
   id: string;
@@ -29,10 +30,14 @@ const EmprestimosNew = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [parcelasDialogOpen, setParcelasDialogOpen] = useState(false);
   const [selectedEmprestimo, setSelectedEmprestimo] = useState<EmprestimoComParcelamento | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [admins, setAdmins] = useState<{ id: string; nome: string | null; pix_key: string | null; pix_tipo: string | null }[]>([]);
+  const [selectedAdminId, setSelectedAdminId] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const { toast } = useToast();
   const { gerarParcelas, buscarParcelas, loading: parcelamentoLoading } = useParcelamento();
+  const { config: systemConfig } = useSystemConfigConfig();
 
   const [formData, setFormData] = useState({
     cliente_id: "",
@@ -247,7 +252,7 @@ const EmprestimosNew = () => {
     setParcelasDialogOpen(true);
   };
 
-  const exportarPDF = async (emprestimo: EmprestimoComParcelamento) => {
+  const exportarPDF = async (emprestimo: EmprestimoComParcelamento, parcelaEspecifica?: any) => {
     try {
       const [{ jsPDF }, qrm] = await Promise.all([
         import('jspdf'),
@@ -257,48 +262,240 @@ const EmprestimosNew = () => {
       // Buscar parcelas se parcelado
       const parcelasLista = emprestimo.parcelado ? await buscarParcelas(emprestimo.id) : [];
 
-      // Buscar admin para pix
-      const { data: admin } = await supabase
-        .from('profiles')
-        .select('nome, pix_key, pix_tipo')
-        .eq('role', 'admin')
-        .limit(1)
+      // Buscar dados do cliente (endereço)
+      const { data: clienteInfo } = await supabase
+        .from('clientes')
+        .select('*')
+        .eq('id', emprestimo.cliente_id)
         .maybeSingle();
 
-      const doc = new jsPDF();
-      let y = 15;
-      doc.setFontSize(16);
-      doc.text('Comprovante de Vencimento', 14, y); y += 8;
-      doc.setFontSize(12);
-      doc.text(`Cliente: ${emprestimo.clientes?.nome || ''}`, 14, y); y += 6;
-      doc.text(`Empréstimo: R$ ${Number(emprestimo.valor_principal).toFixed(2)}`, 14, y); y += 6;
-      doc.text(`Vencimento: ${formatDate(emprestimo.data_vencimento)}`, 14, y); y += 6;
-      doc.text(`Juros mensal: ${Number(emprestimo.taxa_juros_mensal || 0)}%`, 14, y); y += 6;
-      doc.text(`Juros diário atraso: ${Number(emprestimo.taxa_juros_diaria_atraso || 0)}%`, 14, y); y += 8;
+      // Admin selecionado
+      const admin = admins.find(a => a.id === selectedAdminId) || null;
 
-      if (emprestimo.parcelado) {
-        doc.setFontSize(14);
-        doc.text('Parcelas', 14, y); y += 6;
-        doc.setFontSize(11);
-        parcelasLista.forEach((p) => {
-          doc.text(`#${p.numero_parcela} - Valor: R$ ${Number(p.valor_parcela).toFixed(2)} - Venc: ${formatDate(p.data_vencimento)} - Status: ${p.status}`, 14, y);
-          y += 6;
-          if (y > 270) { doc.addPage(); y = 15; }
+      // Cálculo de pendente e atraso
+      const hoje = new Date();
+      const vencGeral = new Date(emprestimo.data_vencimento);
+      const diasAtraso = Math.max(0, Math.floor((hoje.getTime() - vencGeral.getTime()) / (1000 * 60 * 60 * 24)));
+      const dailyRate = Number((emprestimo as any).taxa_juros_diaria_atraso || 0) / 100;
+      let valorPendente = 0;
+      
+      // Se for uma parcela específica, calcular apenas essa parcela
+      if (parcelaEspecifica) {
+        const base = Number(parcelaEspecifica.valor_parcela || 0);
+        const acres = Number((parcelaEspecifica as any).juros_aplicados || 0) + Number((parcelaEspecifica as any).multa_aplicada || 0);
+        const venc = new Date(parcelaEspecifica.data_vencimento);
+        const dias = Math.max(0, Math.floor((hoje.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+        const daily = dias > 0 && dailyRate > 0 ? base * dailyRate * dias : 0;
+        valorPendente = base + acres + daily;
+      } else if (emprestimo.parcelado) {
+        valorPendente = parcelasLista
+          .filter(p => p.status !== 'pago')
+          .reduce((acc, p) => {
+            const base = Number(p.valor_parcela || 0);
+            const acres = Number((p as any).juros_aplicados || 0) + Number((p as any).multa_aplicada || 0);
+            const venc = new Date(p.data_vencimento);
+            const dias = Math.max(0, Math.floor((hoje.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+            const daily = dias > 0 && dailyRate > 0 ? base * dailyRate * dias : 0;
+            return acc + base + acres + daily;
+          }, 0);
+      } else {
+        const mensal = Number(emprestimo.valor_principal) * (1 + Number((emprestimo as any).taxa_juros_mensal || 0) / 100);
+        const dailyInterest = diasAtraso > 0 && dailyRate > 0 ? Number(emprestimo.valor_principal) * dailyRate * diasAtraso : 0;
+        valorPendente = mensal + dailyInterest;
+      }
+
+      const doc = new jsPDF();
+      // Helpers to wrap and paginate
+      const maxY = 290;
+      const lineHeight = 5;
+      const ensurePage = (add = 0) => {
+        if (y + add > maxY) {
+          doc.addPage();
+          y = 20;
+        }
+      };
+      const writeWrapped = (label: string, value: string, x = 14, maxWidth = 180) => {
+        const text = label ? `${label} ${value || '-'}` : (value || '-');
+        const lines = doc.splitTextToSize(text, maxWidth);
+        lines.forEach((ln: string) => {
+          ensurePage(lineHeight);
+          doc.text(ln, x, y);
+          y += lineHeight;
         });
-        y += 4;
+      };
+
+      // Header
+      doc.setDrawColor(230);
+      doc.setFillColor(245, 247, 250);
+      doc.rect(10, 10, 190, 18, 'F');
+      doc.setFontSize(16);
+      // Logo (se disponível)
+      if (systemConfig.logo_url) {
+        try {
+          const logoHref = `${systemConfig.logo_url}${systemConfig.logo_url.includes('?') ? '&' : '?'}v=${encodeURIComponent(systemConfig.updated_at || '')}`;
+          const resp = await fetch(logoHref, { mode: 'cors' });
+          const blob = await resp.blob();
+          const reader = new FileReader();
+          const dataUrl: string = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          
+          // Criar uma imagem temporária para obter dimensões originais
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = () => {
+              const aspectRatio = img.width / img.height;
+              const maxWidth = 25;
+              const maxHeight = 15;
+              
+              let logoWidth = maxWidth;
+              let logoHeight = maxWidth / aspectRatio;
+              
+              // Se a altura calculada for maior que o máximo, ajustar pela altura
+              if (logoHeight > maxHeight) {
+                logoHeight = maxHeight;
+                logoWidth = maxHeight * aspectRatio;
+              }
+              
+              doc.addImage(dataUrl, 'PNG', 12, 12, logoWidth, logoHeight);
+              resolve(true);
+            };
+            img.onerror = reject;
+            img.src = dataUrl;
+          });
+        } catch (e) { 
+          console.log('Erro ao carregar logo:', e);
+        }
+      }
+      const titulo = parcelaEspecifica 
+        ? `Comprovante de Vencimento - Parcela ${parcelaEspecifica.numero_parcela}`
+        : 'Comprovante de Vencimento';
+      doc.text(titulo, 105, 22, { align: 'center' });
+
+      // Dados principais (box)
+      let y = 36;
+      doc.setDrawColor(200);
+      doc.rect(10, y - 8, 190, 54);
+      doc.setFontSize(12);
+      const pick = (obj: any, keys: string[]) => {
+        for (const k of keys) {
+          if (obj && obj[k] && String(obj[k]).trim().length > 0) return String(obj[k]);
+        }
+        return '';
+      };
+      const rua = pick(clienteInfo || {}, ['endereco','logradouro','rua']);
+      const numero = pick(clienteInfo || {}, ['numero','número']);
+      const bairro = pick(clienteInfo || {}, ['bairro']);
+      const cidade = pick(clienteInfo || {}, ['cidade']);
+      const estado = pick(clienteInfo || {}, ['estado','uf']);
+      const cep = pick(clienteInfo || {}, ['cep']);
+      const telefoneCli = pick(clienteInfo || {}, ['telefone','celular','telefone1']);
+      const documentoCli = pick(clienteInfo || {}, ['cpf','cnpj','documento']);
+      const enderecoCompleto = [
+        [rua, numero].filter(Boolean).join(', '),
+        bairro,
+        [cidade, estado].filter(Boolean).join(' - '),
+        cep
+      ].filter(Boolean).join(' | ');
+
+      writeWrapped('Cliente:', `${emprestimo.clientes?.nome || ''}`, 14, 180);
+      writeWrapped('CPF/CNPJ:', documentoCli || '-', 14, 180);
+      writeWrapped('Endereço:', enderecoCompleto || '-', 14, 180);
+      writeWrapped('Telefone:', telefoneCli || '-', 14, 180);
+      
+      if (parcelaEspecifica) {
+        writeWrapped('Parcela:', `${parcelaEspecifica.numero_parcela}`, 14, 180);
+        writeWrapped('Valor da Parcela:', `R$ ${Number(parcelaEspecifica.valor_parcela).toFixed(2)}`, 14, 180);
+        writeWrapped('Vencimento:', `${formatDate(parcelaEspecifica.data_vencimento)}`, 14, 180);
+        writeWrapped('Status:', `${parcelaEspecifica.status || 'pendente'}`, 14, 180);
+      } else {
+        writeWrapped('Valor do Empréstimo:', `R$ ${Number(emprestimo.valor_principal).toFixed(2)}`, 14, 180);
+        writeWrapped('Vencimento:', `${formatDate(emprestimo.data_vencimento)}`, 14, 180);
+        writeWrapped('Juros Mensal:', `${Number(emprestimo.taxa_juros_mensal || 0)}%`, 14, 180);
+        writeWrapped('Juros Diário (Atraso):', `${Number((emprestimo as any).taxa_juros_diaria_atraso || 0)}%`, 14, 180);
+      }
+
+      // Valor pendente em destaque
+      ensurePage(16);
+      doc.setDrawColor(220);
+      doc.setFillColor(250, 250, 250);
+      doc.rect(10, y - 8, 190, 14, 'F');
+      doc.setFontSize(13);
+      
+      if (parcelaEspecifica) {
+        const vencParcela = new Date(parcelaEspecifica.data_vencimento);
+        const diasAtrasoParcela = Math.max(0, Math.floor((hoje.getTime() - vencParcela.getTime()) / (1000 * 60 * 60 * 24)));
+        doc.text(`Dias em atraso: ${diasAtrasoParcela}`, 14, y);
+      } else {
+        doc.text(`Dias em atraso: ${diasAtraso}`, 14, y);
+      }
+      
+      doc.setFontSize(14);
+      doc.text(`Valor Pendente Atual: R$ ${valorPendente.toFixed(2)}`, 196, y, { align: 'right' });
+      y += 16;
+
+      if (emprestimo.parcelado && !parcelaEspecifica) {
+        // Tabela de parcelas (apenas se não for parcela específica)
+        doc.setFontSize(13);
+        ensurePage(10);
+        doc.text('Parcelas', 14, y); y += 4;
+        // Cabeçalho
+        doc.setDrawColor(200);
+        ensurePage(10);
+        doc.rect(10, y, 190, 8);
+        doc.setFontSize(11);
+        doc.text('Parcela', 14, y + 5);
+        doc.text('Valor (R$)', 44, y + 5);
+        doc.text('Vencimento', 90, y + 5);
+        doc.text('Status', 130, y + 5);
+        doc.text('Juro Diário', 160, y + 5);
+        y += 10;
+        parcelasLista.forEach((p) => {
+          ensurePage(8);
+          const base = Number(p.valor_parcela || 0);
+          const vencParc = new Date(p.data_vencimento);
+          const dias = Math.max(0, Math.floor((new Date().getTime() - vencParc.getTime()) / (1000 * 60 * 60 * 24)));
+          const taxaDiaria = Number((emprestimo as any).taxa_juros_diaria_atraso || 0) / 100;
+          const daily = dias > 0 && taxaDiaria > 0 ? base * taxaDiaria * dias : 0;
+          doc.text(`#${p.numero_parcela}`, 14, y);
+          doc.text(`${base.toFixed(2)}`, 44, y);
+          doc.text(`${formatDate(p.data_vencimento)}`, 90, y);
+          // limitar status a 12 chars para não invadir coluna
+          const statusTxt = String(p.status || '').slice(0, 12);
+          doc.text(statusTxt, 130, y);
+          doc.text(`${daily.toFixed(2)}`, 160, y);
+          y += 6;
+        });
+        y += 2;
       }
 
       if (admin?.pix_key) {
-        doc.setFontSize(14);
-        doc.text('Pagamento via Pix', 14, y); y += 6;
+        // Seção de pagamento (Pix)
+        doc.setFontSize(13);
+        ensurePage(60);
+        doc.text('Pagamento via Pix', 14, y); y += 4;
+        doc.setDrawColor(220);
+        doc.rect(10, y, 190, 50);
         doc.setFontSize(11);
-        doc.text(`Chave (${admin.pix_tipo || 'pix'}): ${admin.pix_key}`, 14, y); y += 6;
-        // Gerar QR de forma simples com a chave (não BR Code completo)
+        const chaveLine = `Chave (${admin.pix_tipo || 'pix'}): ${admin.pix_key}`;
+        const chaveLines = doc.splitTextToSize(chaveLine, 140);
+        chaveLines.forEach((ln: string, i: number) => {
+          doc.text(ln, 14, y + 10 + i * lineHeight);
+        });
         const toDataURL = (qrm as any).toDataURL || (qrm as any).default?.toDataURL;
         const qrDataUrl = await toDataURL(admin.pix_key);
-        doc.addImage(qrDataUrl, 'PNG', 14, y, 40, 40);
-        y += 46;
+        doc.addImage(qrDataUrl, 'PNG', 150, y + 5, 40, 40);
+        y += 56;
       }
+
+      // Rodapé
+      ensurePage(10);
+      doc.setDrawColor(240);
+      doc.line(10, 290, 200, 290);
+      doc.setFontSize(9);
+      doc.text('Documento gerado automaticamente pelo sistema.', 105, 295, { align: 'center' });
 
       doc.save(`vencimento_${emprestimo.id}.pdf`);
     } catch (err) {
@@ -677,7 +874,25 @@ const EmprestimosNew = () => {
                               Parcelas
                             </Button>
                           )}
-                          <Button variant="outline" size="sm" onClick={() => exportarPDF(emprestimo)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              const { data } = await supabase
+                                .from('profiles')
+                                .select('id, nome')
+                                .eq('role', 'admin');
+                              setAdmins((data || []).map(admin => ({
+                                id: admin.id,
+                                nome: admin.nome,
+                                pix_key: '',
+                                pix_tipo: 'pix'
+                              })));
+                              setSelectedAdminId((data && data[0]?.id) || "");
+                              setSelectedEmprestimo(emprestimo);
+                              setExportDialogOpen(true);
+                            }}
+                          >
                             <Download className="mr-2 h-4 w-4" />
                             PDF
                           </Button>
@@ -731,6 +946,7 @@ const EmprestimosNew = () => {
                     <TableHead>Pagamento</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Juros</TableHead>
+                    <TableHead>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -748,6 +964,16 @@ const EmprestimosNew = () => {
                       <TableCell>
                         {parcela.juros_aplicados > 0 ? formatCurrency(parcela.juros_aplicados) : "-"}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => exportarPDF(selectedEmprestimo!, parcela)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -757,6 +983,47 @@ const EmprestimosNew = () => {
                 Nenhuma parcela encontrada.
               </p>
             )}
+          </DialogContent>
+        </Dialog>
+        {/* Dialog para exportação em PDF com seleção de administrador (chave Pix) */}
+        <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Exportar Comprovante de Vencimento</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Administrador (chave Pix)</Label>
+                <Select value={selectedAdminId} onValueChange={setSelectedAdminId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um administrador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {admins.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {(a.nome || 'Administrador')} {a.pix_tipo && a.pix_key ? `- ${a.pix_tipo}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {admins.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">Nenhum administrador com chave Pix encontrado.</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
+                <Button
+                  onClick={async () => {
+                    if (!selectedEmprestimo) return;
+                    await exportarPDF(selectedEmprestimo);
+                    setExportDialogOpen(false);
+                  }}
+                  disabled={!selectedEmprestimo || !selectedAdminId}
+                >
+                  Exportar PDF
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

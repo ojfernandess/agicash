@@ -30,9 +30,11 @@ export interface EmprestimoComParcelamento {
   id: string;
   cliente_id: string;
   valor_emprestimo: number;
+  valor_principal: number; // Adicionado para compatibilidade
   data_emprestimo: string;
   data_vencimento: string;
   taxa_juros: number;
+  taxa_juros_mensal: number; // Adicionado para compatibilidade
   valor_total: number;
   status: string;
   observacoes: string | null;
@@ -51,6 +53,17 @@ export interface EmprestimoComParcelamento {
   observacoes_parcelamento: string | null;
   // Relacionamentos
   parcelas?: Parcela[];
+  clientes?: {
+    id: string;
+    nome: string;
+    cpf: string;
+    email: string;
+    telefone: string;
+    endereco: string;
+    cidade: string;
+    estado: string;
+    cep: string;
+  };
 }
 
 export interface ConfiguracaoParcelamento {
