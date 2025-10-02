@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign } from "lucide-react";
+import { DollarSign, Loader2 } from "lucide-react";
 import { useSystemConfig } from "@/hooks/use-system-config-new";
 
 const Auth = () => {
@@ -15,7 +15,7 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { config } = useSystemConfig();
+  const { config, ready } = useSystemConfig();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -61,6 +61,23 @@ const Auth = () => {
     }
   };
 
+  // Mostrar loading enquanto configuração não está pronta
+  if (!ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-success/5 p-4">
+        <Card className="w-full max-w-md shadow-elevated">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto mb-4">
+              <Loader2 className="w-16 h-16 animate-spin text-primary mx-auto" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Carregando...</CardTitle>
+            <CardDescription>Preparando o sistema</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-success/5 p-4">
       <Card className="w-full max-w-md shadow-elevated">
@@ -68,7 +85,7 @@ const Auth = () => {
           <div className="mx-auto mb-2">
             {config.logo_url ? (
               <img 
-                src={config.logo_url} 
+                src={`${config.logo_url}${config.logo_url.includes('?') ? '&' : '?'}v=${encodeURIComponent(config.updated_at || '')}`}
                 alt="Logo" 
                 className="h-16 w-auto mx-auto object-contain"
               />
