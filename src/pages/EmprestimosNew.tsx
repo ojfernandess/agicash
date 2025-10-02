@@ -878,17 +878,41 @@ const EmprestimosNew = () => {
                             variant="outline"
                             size="sm"
                             onClick={async () => {
-                              const { data } = await supabase
+                              // Buscar administradores com chaves Pix
+                              const { data: adminData, error } = await supabase
                                 .from('profiles')
-                                .select('id, nome')
+                                .select('id, nome, pix_key, pix_tipo')
                                 .eq('role', 'admin');
-                              setAdmins((data || []).map(admin => ({
-                                id: admin.id,
-                                nome: admin.nome,
-                                pix_key: '',
-                                pix_tipo: 'pix'
-                              })));
-                              setSelectedAdminId((data && data[0]?.id) || "");
+                              
+                              if (error) {
+                                console.log('Erro ao buscar admins:', error);
+                                // Fallback: buscar apenas id e nome se houver erro
+                                const { data: fallbackData } = await supabase
+                                  .from('profiles')
+                                  .select('id, nome')
+                                  .eq('role', 'admin');
+                                
+                                const adminsFormatted = (fallbackData || []).map(admin => ({
+                                  id: admin.id,
+                                  nome: admin.nome,
+                                  pix_key: 'Chave Pix não configurada - Configure em Usuários',
+                                  pix_tipo: 'pix'
+                                }));
+                                
+                                setAdmins(adminsFormatted);
+                                setSelectedAdminId((adminsFormatted && adminsFormatted[0]?.id) || "");
+                              } else {
+                                // Usar dados reais das chaves Pix
+                                const adminsFormatted = (adminData || []).map(admin => ({
+                                  id: admin.id,
+                                  nome: admin.nome,
+                                  pix_key: admin.pix_key || 'Chave Pix não configurada - Configure em Usuários',
+                                  pix_tipo: admin.pix_tipo || 'pix'
+                                }));
+                                
+                                setAdmins(adminsFormatted);
+                                setSelectedAdminId((adminsFormatted && adminsFormatted[0]?.id) || "");
+                              }
                               setSelectedEmprestimo(emprestimo);
                               setExportDialogOpen(true);
                             }}
