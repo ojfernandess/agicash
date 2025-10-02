@@ -134,12 +134,34 @@ const ConfiguracoesNew = () => {
     }
   };
 
-  if (loading) {
+  if (loading || !ready) {
     return (
       <Layout>
-        <div className="p-4 md:p-6 max-w-4xl mx-auto">
-          <div className="text-center py-8">
-            <p className="text-muted-foreground">Carregando configurações...</p>
+        <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
+          <div>
+            <div className="h-8 w-64 bg-muted rounded animate-pulse" />
+            <div className="h-4 w-80 bg-muted rounded mt-2 animate-pulse" />
+          </div>
+
+          <div className="grid gap-6">
+            <div className="border rounded-lg p-4 animate-pulse">
+              <div className="h-6 w-48 bg-muted rounded mb-4" />
+              <div className="h-10 w-full bg-muted rounded" />
+            </div>
+            <div className="border rounded-lg p-4 animate-pulse">
+              <div className="h-6 w-48 bg-muted rounded mb-4" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="h-10 w-full bg-muted rounded" />
+                <div className="h-10 w-full bg-muted rounded" />
+              </div>
+            </div>
+            <div className="border rounded-lg p-4 animate-pulse">
+              <div className="h-6 w-48 bg-muted rounded mb-4" />
+              <div className="grid gap-3">
+                <div className="h-24 w-full bg-muted rounded" />
+                <div className="h-24 w-full bg-muted rounded" />
+              </div>
+            </div>
           </div>
         </div>
       </Layout>

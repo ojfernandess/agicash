@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Calculator, CreditCard, Eye, Trash2 } from "lucide-react";
+import { Plus, Calculator, CreditCard, Eye, Trash2, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useParcelamento } from "@/hooks/use-parcelamento";
 import { EmprestimoComParcelamento, ConfiguracaoParcelamento, Parcela } from "@/types/parcelamento";
@@ -245,6 +245,65 @@ const EmprestimosNew = () => {
     const parcelasData = await buscarParcelas(emprestimo.id);
     setParcelas(parcelasData);
     setParcelasDialogOpen(true);
+  };
+
+  const exportarPDF = async (emprestimo: EmprestimoComParcelamento) => {
+    try {
+      const [{ jsPDF }, qrm] = await Promise.all([
+        import('jspdf'),
+        import('qrcode')
+      ]);
+
+      // Buscar parcelas se parcelado
+      const parcelasLista = emprestimo.parcelado ? await buscarParcelas(emprestimo.id) : [];
+
+      // Buscar admin para pix
+      const { data: admin } = await supabase
+        .from('profiles')
+        .select('nome, pix_key, pix_tipo')
+        .eq('role', 'admin')
+        .limit(1)
+        .maybeSingle();
+
+      const doc = new jsPDF();
+      let y = 15;
+      doc.setFontSize(16);
+      doc.text('Comprovante de Vencimento', 14, y); y += 8;
+      doc.setFontSize(12);
+      doc.text(`Cliente: ${emprestimo.clientes?.nome || ''}`, 14, y); y += 6;
+      doc.text(`Empréstimo: R$ ${Number(emprestimo.valor_principal).toFixed(2)}`, 14, y); y += 6;
+      doc.text(`Vencimento: ${formatDate(emprestimo.data_vencimento)}`, 14, y); y += 6;
+      doc.text(`Juros mensal: ${Number(emprestimo.taxa_juros_mensal || 0)}%`, 14, y); y += 6;
+      doc.text(`Juros diário atraso: ${Number(emprestimo.taxa_juros_diaria_atraso || 0)}%`, 14, y); y += 8;
+
+      if (emprestimo.parcelado) {
+        doc.setFontSize(14);
+        doc.text('Parcelas', 14, y); y += 6;
+        doc.setFontSize(11);
+        parcelasLista.forEach((p) => {
+          doc.text(`#${p.numero_parcela} - Valor: R$ ${Number(p.valor_parcela).toFixed(2)} - Venc: ${formatDate(p.data_vencimento)} - Status: ${p.status}`, 14, y);
+          y += 6;
+          if (y > 270) { doc.addPage(); y = 15; }
+        });
+        y += 4;
+      }
+
+      if (admin?.pix_key) {
+        doc.setFontSize(14);
+        doc.text('Pagamento via Pix', 14, y); y += 6;
+        doc.setFontSize(11);
+        doc.text(`Chave (${admin.pix_tipo || 'pix'}): ${admin.pix_key}`, 14, y); y += 6;
+        // Gerar QR de forma simples com a chave (não BR Code completo)
+        const toDataURL = (qrm as any).toDataURL || (qrm as any).default?.toDataURL;
+        const qrDataUrl = await toDataURL(admin.pix_key);
+        doc.addImage(qrDataUrl, 'PNG', 14, y, 40, 40);
+        y += 46;
+      }
+
+      doc.save(`vencimento_${emprestimo.id}.pdf`);
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Erro ao exportar PDF', description: (err as any).message });
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -618,6 +677,10 @@ const EmprestimosNew = () => {
                               Parcelas
                             </Button>
                           )}
+                          <Button variant="outline" size="sm" onClick={() => exportarPDF(emprestimo)}>
+                            <Download className="mr-2 h-4 w-4" />
+                            PDF
+                          </Button>
                           <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
                             <AlertDialogTrigger asChild>
                               <Button variant="destructive" size="sm">

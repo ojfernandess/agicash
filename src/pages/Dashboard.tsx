@@ -54,6 +54,7 @@ const Dashboard = () => {
           data_vencimento,
           status,
           taxa_juros_mensal,
+          taxa_juros_diaria_atraso,
           parcelado,
           numero_parcelas,
           valor_parcela,
@@ -109,13 +110,18 @@ const Dashboard = () => {
           if (emp.parcelado) {
             const parcelas = parcelasByEmprestimo[emp.id] || [];
             const hoje = new Date();
+            const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
             // Somar parcelas não pagas; considere vencidas e também as do mês corrente como pendentes
             const valorPendenteParcelas = parcelas
               .filter((parc: any) => parc.status !== 'pago')
               .reduce((acc: number, parc: any) => {
                 const base = Number(parc.valor_parcela || 0);
                 const acrescimos = Number(parc.juros_aplicados || 0) + Number(parc.multa_aplicada || 0);
-                return acc + base + acrescimos;
+                let daily = 0;
+                const venc = new Date(parc.data_vencimento);
+                const dias = Math.max(0, Math.floor((hoje.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+                if (dias > 0 && dailyRate > 0) daily = base * dailyRate * dias;
+                return acc + base + acrescimos + daily;
               }, 0);
             return sum + valorPendenteParcelas;
           } else {
@@ -128,7 +134,12 @@ const Dashboard = () => {
               emp.data_vencimento,
               totalPago
             );
-            return sum + valorPendente;
+            const venc = new Date(emp.data_vencimento);
+            const hojeLocal = new Date();
+            const diasAtrasoLocal = Math.max(0, Math.floor((hojeLocal.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+            const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
+            const dailyInterest = diasAtrasoLocal > 0 && dailyRate > 0 ? Number(emp.valor_principal) * dailyRate * diasAtrasoLocal : 0;
+            return sum + valorPendente + dailyInterest;
           }
         }, 0);
 
@@ -160,8 +171,16 @@ const Dashboard = () => {
           if (emp.parcelado) {
             const parcelas = parcelasByEmprestimo[emp.id] || [];
             const hojeLocal = new Date();
+            const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
             const pendentes = parcelas.filter((p: any) => p.status !== 'pago');
-            const valorPendente = pendentes.reduce((acc: number, p: any) => acc + Number(p.valor_parcela || 0) + Number(p.juros_aplicados || 0) + Number(p.multa_aplicada || 0), 0);
+            const valorPendente = pendentes.reduce((acc: number, p: any) => {
+              const base = Number(p.valor_parcela || 0);
+              const acres = Number(p.juros_aplicados || 0) + Number(p.multa_aplicada || 0);
+              const venc = new Date(p.data_vencimento);
+              const dias = Math.max(0, Math.floor((hojeLocal.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+              const daily = dias > 0 && dailyRate > 0 ? base * dailyRate * dias : 0;
+              return acc + base + acres + daily;
+            }, 0);
             const valorMensal = Number(emp.valor_parcela || 0);
             const pagamentosPendentes = pendentes.length;
             const proximaParcela = parcelas.find((p: any) => p.status !== 'pago');
@@ -192,12 +211,14 @@ const Dashboard = () => {
             );
             const vencimento = new Date(emp.data_vencimento);
             const diasAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24)));
+            const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
+            const dailyInterest = diasAtraso > 0 && dailyRate > 0 ? Number(emp.valor_principal) * dailyRate * diasAtraso : 0;
             return {
               id: emp.cliente_id,
               nome: emp.clientes.nome,
               cpf: emp.clientes.cpf,
               telefone: emp.clientes.telefone,
-              valor_pendente: valorPendente,
+              valor_pendente: valorPendente + dailyInterest,
               valor_mensal: valorMensal,
               pagamentos_pendentes: pagamentosPendentes,
               data_vencimento: emp.data_vencimento,
@@ -370,8 +391,8 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {clientesPendentes.slice(0, 10).map((cliente) => (
-                  <div key={cliente.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors gap-4">
+                {clientesPendentes.slice(0, 10).map((cliente, idx) => (
+                  <div key={`${cliente.id}-${cliente.data_vencimento}-${idx}`} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors gap-4">
                     <div className="flex-1">
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
                         <h3 className="font-semibold text-lg">{cliente.nome}</h3>

@@ -96,8 +96,37 @@ const Layout = ({ children }: LayoutProps) => {
     { icon: Users, label: "Clientes", path: "/clientes" },
     { icon: DollarSign, label: "Empréstimos", path: "/emprestimos" },
     { icon: CreditCard, label: "Pagamentos", path: "/pagamentos" },
+    { icon: Users, label: "Usuários", path: "/usuarios" },
     { icon: Settings, label: "Configurações", path: "/configuracoes" },
   ];
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    (async () => {
+      if (!user?.id) return;
+      // Preferir RPC que ignora RLS e verifica por id ou email
+      const { data: rpcData } = await supabase.rpc('is_current_user_admin');
+      if (typeof rpcData === 'boolean') {
+        setIsAdmin(rpcData);
+        return;
+      }
+      // Fallback por tabela
+      let { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (!data && user.email) {
+        const byEmail = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('email', user.email)
+          .maybeSingle();
+        data = byEmail.data as any;
+      }
+      setIsAdmin((data?.role || 'usuario') === 'admin');
+    })();
+  }, [user]);
 
   if (!user) {
     return null;
@@ -139,7 +168,9 @@ const Layout = ({ children }: LayoutProps) => {
               <h1 className="text-xl font-bold">{config.system_name || ' '}</h1>
             </div>
             <nav className="flex-1 space-y-1 px-2">
-              {menuItems.map((item) => {
+              {menuItems
+                .filter(item => (item.path === '/usuarios' ? isAdmin : true))
+                .map((item) => {
                 const Icon = item.icon;
                 const isActive = window.location.pathname === item.path;
                 return (
@@ -216,7 +247,9 @@ const Layout = ({ children }: LayoutProps) => {
           <div className="fixed inset-y-0 left-0 w-64 bg-card border-r">
             <div className="flex flex-col h-full p-4">
               <nav className="flex-1 space-y-1">
-                {menuItems.map((item) => {
+              {menuItems
+                .filter(item => (item.path === '/usuarios' ? isAdmin : true))
+                .map((item) => {
                   const Icon = item.icon;
                   const isActive = window.location.pathname === item.path;
                   return (
