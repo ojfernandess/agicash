@@ -434,7 +434,7 @@ const EmprestimosNew = () => {
                           setParcelamentoConfig({ ...parcelamentoConfig, parcelado: !!checked })
                         }
                       />
-                      <Label htmlFor="parcelado">Empréstimo Parcelado</Label>
+                      <Label htmlFor="parcelado">Empréstimo Parcelado (opcional)</Label>
                     </div>
 
                     {parcelamentoConfig.parcelado && (
@@ -451,7 +451,8 @@ const EmprestimosNew = () => {
                                 ...parcelamentoConfig, 
                                 numero_parcelas: parseInt(e.target.value) || 1 
                               })}
-                              required
+                              required={parcelamentoConfig.parcelado}
+                              disabled={!parcelamentoConfig.parcelado}
                             />
                           </div>
                           <div className="space-y-2">
@@ -466,7 +467,8 @@ const EmprestimosNew = () => {
                                 valor_parcela: parseFloat(e.target.value) || 0 
                               })}
                               placeholder="0,00"
-                              required
+                              required={parcelamentoConfig.parcelado}
+                              disabled={!parcelamentoConfig.parcelado}
                             />
                           </div>
                         </div>
@@ -483,7 +485,8 @@ const EmprestimosNew = () => {
                                 ...parcelamentoConfig, 
                                 intervalo_pagamento: parseInt(e.target.value) || 30 
                               })}
-                              required
+                              required={parcelamentoConfig.parcelado}
+                              disabled={!parcelamentoConfig.parcelado}
                             />
                           </div>
                           <div className="space-y-2">
@@ -496,7 +499,8 @@ const EmprestimosNew = () => {
                                 ...parcelamentoConfig, 
                                 data_primeira_parcela: e.target.value 
                               })}
-                              required
+                              required={parcelamentoConfig.parcelado}
+                              disabled={!parcelamentoConfig.parcelado}
                             />
                           </div>
                         </div>

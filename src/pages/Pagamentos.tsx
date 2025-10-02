@@ -32,9 +32,22 @@ interface EmprestimoAtivo {
   id: string;
   valor_principal: number;
   taxa_juros_mensal: number;
+  parcelado?: boolean;
+  valor_parcela?: number | null;
   clientes: {
     nome: string;
   };
+}
+
+interface Parcela {
+  id: string;
+  emprestimo_id: string;
+  numero_parcela: number;
+  valor_parcela: number;
+  data_vencimento: string;
+  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado';
+  juros_aplicados: number | null;
+  multa_aplicada: number | null;
 }
 
 const Pagamentos = () => {
@@ -52,6 +65,8 @@ const Pagamentos = () => {
   });
 
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<EmprestimoAtivo | null>(null);
+  const [parcelas, setParcelas] = useState<Parcela[]>([]);
+  const [parcelaId, setParcelaId] = useState<string>("");
 
   useEffect(() => {
     loadData();
@@ -61,8 +76,27 @@ const Pagamentos = () => {
     if (formData.emprestimo_id) {
       const emprestimo = emprestimosAtivos.find(e => e.id === formData.emprestimo_id);
       setEmprestimoSelecionado(emprestimo || null);
+      // Carregar parcelas se for parcelado
+      if (emprestimo?.parcelado) {
+        supabase
+          .from('parcelas')
+          .select('*')
+          .eq('emprestimo_id', emprestimo.id)
+          .order('numero_parcela', { ascending: true })
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('Erro ao carregar parcelas:', error);
+              setParcelas([]);
+            } else {
+              setParcelas(data || []);
+            }
+          });
+      } else {
+        setParcelas([]);
+      }
     } else {
       setEmprestimoSelecionado(null);
+      setParcelas([]);
     }
   }, [formData.emprestimo_id, emprestimosAtivos]);
 
@@ -86,6 +120,8 @@ const Pagamentos = () => {
             id,
             valor_principal,
             taxa_juros_mensal,
+            parcelado,
+            valor_parcela,
             clientes (nome)
           `)
           .in("status", ["ativo", "parcial", "vencido"])
@@ -115,16 +151,70 @@ const Pagamentos = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      // Inserir pagamento
-      const { error: pagamentoError } = await supabase.from("pagamentos").insert({
-        user_id: user.id,
-        emprestimo_id: formData.emprestimo_id,
-        valor_pago: parseFloat(formData.valor_pago),
-        tipo_pagamento: formData.tipo_pagamento,
-        observacoes: formData.observacoes || null,
-      });
+      const valorPagoNumber = parseFloat(formData.valor_pago);
+      if (!Number.isFinite(valorPagoNumber) || valorPagoNumber <= 0) {
+        throw new Error('Informe um valor válido.');
+      }
 
-      if (pagamentoError) throw pagamentoError;
+      // Se for parcelado e o tipo selecionado for 'parcela', exigir seleção de parcela e quitar
+      if (emprestimoSelecionado?.parcelado && formData.tipo_pagamento === 'parcela') {
+        if (!parcelaId) {
+          throw new Error('Selecione a parcela para registrar o pagamento.');
+        }
+        const parcela = parcelas.find(p => p.id === parcelaId);
+        if (!parcela) throw new Error('Parcela inválida.');
+
+        // Registrar no histórico de pagamentos
+        const { error: pagamentoError } = await supabase.from("pagamentos").insert({
+          user_id: user.id,
+          emprestimo_id: formData.emprestimo_id,
+          valor_pago: valorPagoNumber,
+          tipo_pagamento: 'parcela',
+          observacoes: `Pagamento da parcela #${parcela.numero_parcela}`,
+        });
+        if (pagamentoError) throw pagamentoError;
+
+        // Atualizar a parcela como paga
+        const { error: parcelaError } = await supabase
+          .from('parcelas')
+          .update({
+            valor_pago: valorPagoNumber,
+            data_pagamento: new Date().toISOString().slice(0, 10),
+            status: 'pago',
+          })
+          .eq('id', parcelaId);
+        if (parcelaError) throw parcelaError;
+
+        // Se todas as parcelas foram pagas, marcar empréstimo como pago
+        const { data: restantes, error: restError } = await supabase
+          .from('parcelas')
+          .select('id')
+          .eq('emprestimo_id', formData.emprestimo_id)
+          .neq('status', 'pago');
+        if (restError) throw restError;
+        if (!restantes || restantes.length === 0) {
+          await supabase.from('emprestimos').update({ status: 'pago' }).eq('id', formData.emprestimo_id);
+        }
+      } else {
+        // Fluxo anterior (não parcelado)
+        const { error: pagamentoError } = await supabase.from("pagamentos").insert({
+          user_id: user.id,
+          emprestimo_id: formData.emprestimo_id,
+          valor_pago: valorPagoNumber,
+          tipo_pagamento: formData.tipo_pagamento,
+          observacoes: formData.observacoes || null,
+        });
+        if (pagamentoError) throw pagamentoError;
+
+        // Atualizar status do empréstimo se pagamento total
+        if (formData.tipo_pagamento === "total") {
+          const { error: updateError } = await supabase
+            .from("emprestimos")
+            .update({ status: "pago" })
+            .eq("id", formData.emprestimo_id);
+          if (updateError) throw updateError;
+        }
+      }
 
       // Atualizar status do empréstimo se pagamento total
       if (formData.tipo_pagamento === "total") {
@@ -148,6 +238,7 @@ const Pagamentos = () => {
         tipo_pagamento: "parcial",
         observacoes: "",
       });
+      setParcelaId("");
       loadData();
     } catch (error: any) {
       toast({
@@ -234,6 +325,28 @@ const Pagamentos = () => {
                   </div>
                 )}
 
+                {/* Seleção de parcela quando for parcelado */}
+                {emprestimoSelecionado?.parcelado && (
+                  <div className="space-y-2">
+                    <Label htmlFor="parcela_id">Parcela</Label>
+                    <Select value={parcelaId} onValueChange={setParcelaId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione a parcela" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {parcelas.map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            #{p.numero_parcela} - {formatCurrency(p.valor_parcela)} {p.status !== 'pago' ? `( ${p.status} )` : '(pago)'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-xs text-muted-foreground">
+                      Selecione a parcela para registrar o pagamento específico.
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="tipo_pagamento">Tipo de Pagamento *</Label>
                   <Select
@@ -245,6 +358,9 @@ const Pagamentos = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      {emprestimoSelecionado?.parcelado && (
+                        <SelectItem value="parcela">Pagamento de Parcela</SelectItem>
+                      )}
                       <SelectItem value="total">Pagamento Total (Principal + Juros)</SelectItem>
                       <SelectItem value="juros">Apenas Juros</SelectItem>
                       <SelectItem value="parcial">Pagamento Parcial</SelectItem>
