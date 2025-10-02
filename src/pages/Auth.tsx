@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { DollarSign } from "lucide-react";
-import { useSystemConfig } from "@/hooks/use-system-config";
+import { useSystemConfig } from "@/hooks/use-system-config-new";
 
 const Auth = () => {
   const [email, setEmail] = useState("");

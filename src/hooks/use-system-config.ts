@@ -76,7 +76,15 @@ export const useSystemConfig = () => {
       console.log('📊 É array?', Array.isArray(data));
       console.log('📊 Tamanho do array:', data ? data.length : 'null');
       
-      const newConfig = data && data.length > 0 ? data[0] : defaultConfig;
+      // A nova função retorna uma única linha, não um array
+      let newConfig = defaultConfig;
+      
+      if (data && Array.isArray(data) && data.length > 0) {
+        newConfig = data[0];
+        console.log('✅ Configuração encontrada no banco:', newConfig);
+      } else {
+        console.log('⚠️ Nenhuma configuração encontrada, usando padrão:', defaultConfig);
+      }
       console.log('⚙️ Configuração final:', newConfig);
       console.log('🖼️ Logo URL na configuração:', newConfig.logo_url);
       console.log('🎨 Favicon URL na configuração:', newConfig.favicon_url);
@@ -127,7 +135,12 @@ export const useSystemConfig = () => {
         p_secondary_color: newConfig.secondary_color || '#64748b'
       };
       
-      console.log('🚀 Enviando para save_system_config:', configToSave);
+      console.log('🚀 Enviando para save_system_config:');
+      console.log('  - system_name:', configToSave.p_system_name);
+      console.log('  - logo_url:', configToSave.p_logo_url);
+      console.log('  - favicon_url:', configToSave.p_favicon_url);
+      console.log('  - primary_color:', configToSave.p_primary_color);
+      console.log('  - secondary_color:', configToSave.p_secondary_color);
       
       const { data, error } = await supabase.rpc('save_system_config', configToSave);
 

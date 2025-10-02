@@ -54,6 +54,9 @@ const Dashboard = () => {
           data_vencimento,
           status,
           taxa_juros_mensal,
+          parcelado,
+          numero_parcelas,
+          valor_parcela,
           dias_atraso,
           clientes!inner (
             id,
@@ -73,6 +76,21 @@ const Dashboard = () => {
 
       if (pagamentosError) throw pagamentosError;
 
+      // Se houver parcelamentos, buscar parcelas dos empréstimos
+      const emprestimoIds = (emprestimos || []).map(e => e.id);
+      let parcelasByEmprestimo: Record<string, any[]> = {};
+      if (emprestimoIds.length > 0) {
+        const { data: parcelas, error: parcelasError } = await supabase
+          .from('parcelas')
+          .select('emprestimo_id, valor_parcela, status, data_vencimento, juros_aplicados, multa_aplicada')
+          .in('emprestimo_id', emprestimoIds);
+        if (parcelasError) throw parcelasError;
+        parcelasByEmprestimo = (parcelas || []).reduce((acc: Record<string, any[]>, p: any) => {
+          (acc[p.emprestimo_id] = acc[p.emprestimo_id] || []).push(p);
+          return acc;
+        }, {});
+      }
+
       if (emprestimos) {
         const hoje = new Date();
         const proximos7Dias = new Date();
@@ -87,11 +105,22 @@ const Dashboard = () => {
         }, 0);
 
         const totalReceber = emprestimos.reduce((sum, emp) => {
-          if (emp.status === 'ativo' || emp.status === 'parcial' || emp.status === 'vencido') {
+          if (!(emp.status === 'ativo' || emp.status === 'parcial' || emp.status === 'vencido')) return sum;
+          if (emp.parcelado) {
+            const parcelas = parcelasByEmprestimo[emp.id] || [];
+            const hoje = new Date();
+            // Somar parcelas não pagas; considere vencidas e também as do mês corrente como pendentes
+            const valorPendenteParcelas = parcelas
+              .filter((parc: any) => parc.status !== 'pago')
+              .reduce((acc: number, parc: any) => {
+                const base = Number(parc.valor_parcela || 0);
+                const acrescimos = Number(parc.juros_aplicados || 0) + Number(parc.multa_aplicada || 0);
+                return acc + base + acrescimos;
+              }, 0);
+            return sum + valorPendenteParcelas;
+          } else {
             const pagamentosDoEmprestimo = pagamentos?.filter(p => p.emprestimo_id === emp.id) || [];
-            const totalPago = pagamentosDoEmprestimo.reduce((sum, p) => sum + Number(p.valor_pago), 0);
-            
-            // Usar a mesma lógica de cálculo de valor pendente
+            const totalPago = pagamentosDoEmprestimo.reduce((s, p) => s + Number(p.valor_pago), 0);
             const { valorPendente } = calcularValorPendente(
               Number(emp.valor_principal),
               Number(emp.taxa_juros_mensal || 0),
@@ -99,10 +128,8 @@ const Dashboard = () => {
               emp.data_vencimento,
               totalPago
             );
-            
             return sum + valorPendente;
           }
-          return sum;
         }, 0);
 
         const emprestimosVencidos = emprestimos.filter(emp => {
@@ -130,34 +157,54 @@ const Dashboard = () => {
 
         // Calcular clientes pendentes
         const clientesComPendencias: ClientePendente[] = emprestimos.map(emp => {
-          const pagamentosDoEmprestimo = pagamentos?.filter(p => p.emprestimo_id === emp.id) || [];
-          const totalPago = pagamentosDoEmprestimo.reduce((sum, p) => sum + Number(p.valor_pago), 0);
-          
-          // Calcular valor pendente usando a nova lógica
-          const { valorPendente, valorMensal, pagamentosPendentes } = calcularValorPendente(
-            Number(emp.valor_principal),
-            Number(emp.taxa_juros_mensal || 0),
-            emp.data_emprestimo,
-            emp.data_vencimento,
-            totalPago
-          );
-
-          // Calcular dias de atraso
-          const vencimento = new Date(emp.data_vencimento);
-          const diasAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24)));
-
-          return {
-            id: emp.cliente_id,
-            nome: emp.clientes.nome,
-            cpf: emp.clientes.cpf,
-            telefone: emp.clientes.telefone,
-            valor_pendente: valorPendente,
-            valor_mensal: valorMensal,
-            pagamentos_pendentes: pagamentosPendentes,
-            data_vencimento: emp.data_vencimento,
-            dias_atraso: diasAtraso,
-            status: emp.status || 'ativo'
-          };
+          if (emp.parcelado) {
+            const parcelas = parcelasByEmprestimo[emp.id] || [];
+            const hojeLocal = new Date();
+            const pendentes = parcelas.filter((p: any) => p.status !== 'pago');
+            const valorPendente = pendentes.reduce((acc: number, p: any) => acc + Number(p.valor_parcela || 0) + Number(p.juros_aplicados || 0) + Number(p.multa_aplicada || 0), 0);
+            const valorMensal = Number(emp.valor_parcela || 0);
+            const pagamentosPendentes = pendentes.length;
+            const proximaParcela = parcelas.find((p: any) => p.status !== 'pago');
+            const dataVencimentoRef = proximaParcela?.data_vencimento || emp.data_vencimento;
+            const venc = new Date(dataVencimentoRef);
+            const diasAtraso = Math.max(0, Math.floor((hojeLocal.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+            return {
+              id: emp.cliente_id,
+              nome: emp.clientes.nome,
+              cpf: emp.clientes.cpf,
+              telefone: emp.clientes.telefone,
+              valor_pendente: valorPendente,
+              valor_mensal: valorMensal,
+              pagamentos_pendentes: pagamentosPendentes,
+              data_vencimento: dataVencimentoRef,
+              dias_atraso: diasAtraso,
+              status: emp.status || 'ativo'
+            };
+          } else {
+            const pagamentosDoEmprestimo = pagamentos?.filter(p => p.emprestimo_id === emp.id) || [];
+            const totalPago = pagamentosDoEmprestimo.reduce((sum, p) => sum + Number(p.valor_pago), 0);
+            const { valorPendente, valorMensal, pagamentosPendentes } = calcularValorPendente(
+              Number(emp.valor_principal),
+              Number(emp.taxa_juros_mensal || 0),
+              emp.data_emprestimo,
+              emp.data_vencimento,
+              totalPago
+            );
+            const vencimento = new Date(emp.data_vencimento);
+            const diasAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24)));
+            return {
+              id: emp.cliente_id,
+              nome: emp.clientes.nome,
+              cpf: emp.clientes.cpf,
+              telefone: emp.clientes.telefone,
+              valor_pendente: valorPendente,
+              valor_mensal: valorMensal,
+              pagamentos_pendentes: pagamentosPendentes,
+              data_vencimento: emp.data_vencimento,
+              dias_atraso: diasAtraso,
+              status: emp.status || 'ativo'
+            };
+          }
         }).filter(cliente => cliente.valor_pendente > 0); // Apenas clientes com valor pendente
 
         // Ordenar por dias de atraso (mais atrasados primeiro)

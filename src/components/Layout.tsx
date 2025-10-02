@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useSystemConfig, hasValidCache } from "@/hooks/use-system-config";
+import { useSystemConfig } from "@/hooks/use-system-config-new";
 
 interface LayoutProps {
   children: ReactNode;

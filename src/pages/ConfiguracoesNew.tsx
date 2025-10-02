@@ -5,12 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useSystemConfig, SystemConfig } from "@/hooks/use-system-config";
+import { useSystemConfig } from "@/hooks/use-system-config-new";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Save, Palette, Image, Settings } from "lucide-react";
+import { Save, Settings, Palette, Image } from "lucide-react";
 
-const Configuracoes = () => {
-  const { config, loading, updateConfig, uploadFile, clearCache, forceReload } = useSystemConfig();
+const ConfiguracoesNew = () => {
+  const { config, loading, ready, updateConfig, uploadFile } = useSystemConfig();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
 
@@ -25,20 +25,20 @@ const Configuracoes = () => {
 
   // Sincronizar formData com config quando carregado
   useEffect(() => {
-    if (!loading && config) {
+    if (ready && config) {
       setFormData({
         system_name: config.system_name || 'Flow Lend',
         primary_color: config.primary_color || '#3b82f6',
         secondary_color: config.secondary_color || '#64748b',
       });
     }
-  }, [config, loading]);
+  }, [config, ready]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      console.log('💾 Iniciando salvamento das configurações...');
-      console.log('📝 FormData atual:', formData);
+      console.log('💾 Iniciando salvamento...');
+      console.log('📝 FormData:', formData);
       console.log('⚙️ Config atual:', config);
       
       let logoUrl = config.logo_url;
@@ -73,8 +73,8 @@ const Configuracoes = () => {
         console.log('✅ Favicon enviado:', faviconUrl);
       }
 
-      // Preparar dados para envio - enviar todos os dados atuais
-      const configToSave: SystemConfig = {
+      // Preparar dados para envio
+      const configToSave = {
         system_name: formData.system_name,
         logo_url: logoUrl,
         favicon_url: faviconUrl,
@@ -82,18 +82,9 @@ const Configuracoes = () => {
         secondary_color: formData.secondary_color
       };
       
-      console.log('🚀 Enviando configurações completas:', configToSave);
-      console.log('📝 Comparação com config atual:');
-      console.log('  - system_name:', formData.system_name, 'vs', config.system_name);
-      console.log('  - primary_color:', formData.primary_color, 'vs', config.primary_color);
-      console.log('  - secondary_color:', formData.secondary_color, 'vs', config.secondary_color);
-      console.log('  - logo_url:', logoUrl, 'vs', config.logo_url);
-      console.log('  - favicon_url:', faviconUrl, 'vs', config.favicon_url);
+      console.log('🚀 Salvando configurações:', configToSave);
 
-      // Limpar cache antes de salvar
-      clearCache();
-
-      // Atualizar configurações
+      // Salvar configurações
       const success = await updateConfig(configToSave);
 
       if (success) {
@@ -105,10 +96,6 @@ const Configuracoes = () => {
         // Limpar arquivos selecionados
         setLogoFile(null);
         setFaviconFile(null);
-        
-        // Forçar recarregamento completo do Supabase
-        console.log('🔄 Forçando recarregamento após salvamento...');
-        await forceReload();
         
         // Atualizar favicon na página
         if (faviconUrl) {
@@ -194,6 +181,9 @@ const Configuracoes = () => {
                     onChange={(e) => setFormData({ ...formData, system_name: e.target.value })}
                     placeholder="Digite o nome do sistema"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Nome atual: {config.system_name}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -327,26 +317,7 @@ const Configuracoes = () => {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-between">
-          <Button 
-            variant="outline" 
-            onClick={forceReload} 
-            disabled={loading}
-            className="min-w-32"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2" />
-                Recarregando...
-              </>
-            ) : (
-              <>
-                <Settings className="mr-2 h-4 w-4" />
-                Recarregar do Supabase
-              </>
-            )}
-          </Button>
-          
+        <div className="flex justify-end">
           <Button onClick={handleSave} disabled={saving} className="min-w-32">
             {saving ? (
               <>
@@ -361,10 +332,24 @@ const Configuracoes = () => {
             )}
           </Button>
         </div>
+
+        {/* Debug Info */}
+        <Card className="bg-muted/50">
+          <CardHeader>
+            <CardTitle className="text-sm">Debug Info</CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs space-y-2">
+            <div><strong>Ready:</strong> {ready ? 'Sim' : 'Não'}</div>
+            <div><strong>Loading:</strong> {loading ? 'Sim' : 'Não'}</div>
+            <div><strong>Config ID:</strong> {config.id}</div>
+            <div><strong>System Name:</strong> {config.system_name}</div>
+            <div><strong>Form Name:</strong> {formData.system_name}</div>
+            <div><strong>Names Match:</strong> {config.system_name === formData.system_name ? 'Sim' : 'Não'}</div>
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );
 };
 
-export default Configuracoes;
-
+export default ConfiguracoesNew;
