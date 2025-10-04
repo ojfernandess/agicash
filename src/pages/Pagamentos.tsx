@@ -52,6 +52,7 @@ interface Parcela {
   multa_aplicada: number | null;
 }
 
+<<<<<<< HEAD
 interface MesPendente {
   mes: number;
   ano: number;
@@ -62,6 +63,8 @@ interface MesPendente {
   data_ultimo_pagamento: string | null;
 }
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
 const Pagamentos = () => {
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
   const [emprestimosAtivos, setEmprestimosAtivos] = useState<EmprestimoAtivo[]>([]);
@@ -79,8 +82,11 @@ const Pagamentos = () => {
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<EmprestimoAtivo | null>(null);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [parcelaId, setParcelaId] = useState<string>("");
+<<<<<<< HEAD
   const [mesesPendentes, setMesesPendentes] = useState<MesPendente[]>([]);
   const [mesSelecionado, setMesSelecionado] = useState<string>("");
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
 
   useEffect(() => {
     loadData();
@@ -90,7 +96,10 @@ const Pagamentos = () => {
     if (formData.emprestimo_id) {
       const emprestimo = emprestimosAtivos.find(e => e.id === formData.emprestimo_id);
       setEmprestimoSelecionado(emprestimo || null);
+<<<<<<< HEAD
       
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
       // Carregar parcelas se for parcelado
       if (emprestimo?.parcelado) {
         supabase
@@ -109,6 +118,7 @@ const Pagamentos = () => {
       } else {
         setParcelas([]);
       }
+<<<<<<< HEAD
       
       // Carregar meses pendentes
       loadMesesPendentes(emprestimo.id);
@@ -116,6 +126,11 @@ const Pagamentos = () => {
       setEmprestimoSelecionado(null);
       setParcelas([]);
       setMesesPendentes([]);
+=======
+    } else {
+      setEmprestimoSelecionado(null);
+      setParcelas([]);
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
     }
   }, [formData.emprestimo_id, emprestimosAtivos]);
 
@@ -163,6 +178,7 @@ const Pagamentos = () => {
     }
   };
 
+<<<<<<< HEAD
   const loadMesesPendentes = async (emprestimoId: string) => {
     try {
       // Buscar empréstimo para obter dados
@@ -258,6 +274,8 @@ const Pagamentos = () => {
     return meses;
   };
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -270,6 +288,7 @@ const Pagamentos = () => {
         throw new Error('Informe um valor válido.');
       }
 
+<<<<<<< HEAD
       // Obter mês e ano do pagamento
       const dataAtual = new Date();
       let mesPagamento: number;
@@ -285,6 +304,8 @@ const Pagamentos = () => {
         throw new Error('Selecione o mês/ano do pagamento.');
       }
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
       // Se for parcelado e o tipo selecionado for 'parcela', exigir seleção de parcela e quitar
       if (emprestimoSelecionado?.parcelado && formData.tipo_pagamento === 'parcela') {
         if (!parcelaId) {
@@ -299,8 +320,11 @@ const Pagamentos = () => {
           emprestimo_id: formData.emprestimo_id,
           valor_pago: valorPagoNumber,
           tipo_pagamento: 'parcela',
+<<<<<<< HEAD
           mes_pagamento: mesPagamento,
           ano_pagamento: anoPagamento,
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
           observacoes: `Pagamento da parcela #${parcela.numero_parcela}`,
         });
         if (pagamentoError) throw pagamentoError;
@@ -333,8 +357,11 @@ const Pagamentos = () => {
           emprestimo_id: formData.emprestimo_id,
           valor_pago: valorPagoNumber,
           tipo_pagamento: formData.tipo_pagamento,
+<<<<<<< HEAD
           mes_pagamento: mesPagamento,
           ano_pagamento: anoPagamento,
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
           observacoes: formData.observacoes || null,
         });
         if (pagamentoError) throw pagamentoError;
@@ -372,7 +399,10 @@ const Pagamentos = () => {
         observacoes: "",
       });
       setParcelaId("");
+<<<<<<< HEAD
       setMesSelecionado("");
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
       loadData();
     } catch (error: any) {
       toast({
@@ -400,6 +430,7 @@ const Pagamentos = () => {
     });
   };
 
+<<<<<<< HEAD
   const formatMonthYear = (mes: number, ano: number) => {
     const meses = [
       'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -417,6 +448,8 @@ const Pagamentos = () => {
     }
   };
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
   const calcularValores = () => {
     if (!emprestimoSelecionado) return null;
 
@@ -468,6 +501,7 @@ const Pagamentos = () => {
                   </Select>
                 </div>
 
+<<<<<<< HEAD
                 {/* Seção de Seleção de Mês/Ano */}
                 <div className="space-y-2">
                   <Label>Mês/Ano do Pagamento *</Label>
@@ -497,6 +531,8 @@ const Pagamentos = () => {
                   </div>
                 </div>
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
                 {valores && (
                   <div className="bg-muted p-3 rounded-lg space-y-1">
                     <p className="text-sm"><strong>Valor Principal:</strong> {formatCurrency(emprestimoSelecionado!.valor_principal)}</p>
@@ -581,6 +617,7 @@ const Pagamentos = () => {
           </Dialog>
         </div>
 
+<<<<<<< HEAD
         {/* Resumo de Meses Pendentes */}
         {emprestimoSelecionado && (
           <Card className="shadow-card">
@@ -634,6 +671,8 @@ const Pagamentos = () => {
           </Card>
         )}
 
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
         <Card className="shadow-card">
           <CardHeader>
             <CardTitle>Histórico de Pagamentos</CardTitle>
@@ -653,7 +692,10 @@ const Pagamentos = () => {
                       <TableHead>Cliente</TableHead>
                       <TableHead>Valor Pago</TableHead>
                       <TableHead>Tipo</TableHead>
+<<<<<<< HEAD
                       <TableHead>Mês/Ano</TableHead>
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
                       <TableHead>Data</TableHead>
                       <TableHead>Observações</TableHead>
                     </TableRow>
@@ -668,12 +710,15 @@ const Pagamentos = () => {
                           {formatCurrency(pagamento.valor_pago)}
                         </TableCell>
                         <TableCell className="capitalize">{pagamento.tipo_pagamento}</TableCell>
+<<<<<<< HEAD
                         <TableCell>
                           {pagamento.mes_pagamento && pagamento.ano_pagamento 
                             ? formatMonthYear(pagamento.mes_pagamento, pagamento.ano_pagamento)
                             : '-'
                           }
                         </TableCell>
+=======
+>>>>>>> 61192210186a01f5e176b8940520f10050027d63
                         <TableCell>{formatDate(pagamento.data_pagamento)}</TableCell>
                         <TableCell className="max-w-xs truncate">
                           {pagamento.observacoes || "-"}
