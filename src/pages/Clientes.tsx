@@ -149,14 +149,39 @@ const Clientes = () => {
     if (!selectedCliente) return;
 
     try {
-      // Por enquanto, apenas mostrar uma mensagem até a migração ser executada
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+
+      // Salvar/atualizar configuração por cliente
+      const upsertPayload = {
+        user_id: user.id,
+        cliente_id: selectedCliente.id,
+        taxa_juros_diaria_padrao: Number(configData.taxa_juros_diaria_padrao || 0),
+        taxa_juros_diaria_atraso: Number(configData.taxa_juros_diaria_atraso || 0),
+        ativo: true,
+        updated_at: new Date().toISOString(),
+      } as any;
+
+      const { error: upsertError } = await supabase
+        .from('configuracoes_juros')
+        .upsert(upsertPayload, { onConflict: 'user_id,cliente_id' });
+      if (upsertError) throw upsertError;
+
+      // Opcional: refletir taxa nos empréstimos existentes do cliente para uso no frontend
+      await supabase
+        .from('emprestimos')
+        .update({ taxa_juros_diaria_atraso: Number(configData.taxa_juros_diaria_atraso || 0) })
+        .eq('cliente_id', selectedCliente.id)
+        .in('status', ['ativo', 'parcial', 'vencido']);
+
       toast({
-        title: "Configuração temporária!",
-        description: "Execute a migração no Supabase para salvar as configurações permanentemente.",
+        title: "Configuração salva!",
+        description: "Taxas de juros atualizadas para o cliente.",
       });
 
       setConfigDialogOpen(false);
       setSelectedCliente(null);
+      loadClientes();
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -170,10 +195,18 @@ const Clientes = () => {
     setSelectedCliente(cliente);
     
     try {
-      // Por enquanto, usar valores padrão até a migração ser executada
+      // Buscar configuração existente
+      const { data: existente, error } = await supabase
+        .from('configuracoes_juros')
+        .select('taxa_juros_diaria_padrao, taxa_juros_diaria_atraso')
+        .eq('cliente_id', cliente.id)
+        .eq('ativo', true)
+        .maybeSingle();
+      if (error) throw error;
+
       setConfigData({
-        taxa_juros_diaria_padrao: 0.033333,
-        taxa_juros_diaria_atraso: 0.05,
+        taxa_juros_diaria_padrao: existente?.taxa_juros_diaria_padrao ?? 0.033333,
+        taxa_juros_diaria_atraso: existente?.taxa_juros_diaria_atraso ?? 0.05,
       });
 
       setConfigDialogOpen(true);
