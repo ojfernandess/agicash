@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { CalendarIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -34,6 +37,8 @@ interface EmprestimoAtivo {
   id: string;
   valor_principal: number;
   taxa_juros_mensal: number;
+  data_vencimento?: string;
+  taxa_juros_diaria_atraso?: number | null;
   parcelado?: boolean;
   valor_parcela?: number | null;
   clientes: {
@@ -81,6 +86,9 @@ const Pagamentos = () => {
   const [parcelaId, setParcelaId] = useState<string>("");
   const [mesesPendentes, setMesesPendentes] = useState<MesPendente[]>([]);
   const [mesSelecionado, setMesSelecionado] = useState<string>("");
+  const [dataSelecionada, setDataSelecionada] = useState<Date | null>(null);
+  const [jurosDiariosCalculados, setJurosDiariosCalculados] = useState<number>(0);
+  const [diasAtrasoCalculados, setDiasAtrasoCalculados] = useState<number>(0);
 
   useEffect(() => {
     loadData();
@@ -119,6 +127,28 @@ const Pagamentos = () => {
     }
   }, [formData.emprestimo_id, emprestimosAtivos]);
 
+  // Recalcular juros diários quando mudar a data ou o empréstimo
+  useEffect(() => {
+    if (!emprestimoSelecionado || !dataSelecionada) {
+      setJurosDiariosCalculados(0);
+      setDiasAtrasoCalculados(0);
+      return;
+    }
+    if (!emprestimoSelecionado.data_vencimento) {
+      setJurosDiariosCalculados(0);
+      setDiasAtrasoCalculados(0);
+      return;
+    }
+    const venc = new Date(emprestimoSelecionado.data_vencimento);
+    const fim = new Date(dataSelecionada.getFullYear(), dataSelecionada.getMonth(), dataSelecionada.getDate());
+    const dias = Math.max(0, Math.floor((fim.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+    const dailyRate = Number(emprestimoSelecionado.taxa_juros_diaria_atraso || 0);
+    const base = Number(emprestimoSelecionado.valor_principal || 0);
+    const juros = dias > 0 && dailyRate > 0 ? base * (dailyRate / 100) * dias : 0;
+    setDiasAtrasoCalculados(dias);
+    setJurosDiariosCalculados(Number(juros.toFixed(2)));
+  }, [emprestimoSelecionado, dataSelecionada]);
+
   const loadData = async () => {
     try {
       const [pagamentosRes, emprestimosRes] = await Promise.all([
@@ -129,6 +159,8 @@ const Pagamentos = () => {
             emprestimos (
               valor_principal,
               taxa_juros_mensal,
+              data_vencimento,
+              taxa_juros_diaria_atraso,
               clientes (nome)
             )
           `)
@@ -141,6 +173,8 @@ const Pagamentos = () => {
             taxa_juros_mensal,
             parcelado,
             valor_parcela,
+            data_vencimento,
+            taxa_juros_diaria_atraso,
             clientes (nome)
           `)
           .in("status", ["ativo", "parcial", "vencido"])
@@ -181,7 +215,7 @@ const Pagamentos = () => {
       // Buscar pagamentos existentes para este empréstimo
       const { data: pagamentos, error: pagamentosError } = await supabase
         .from('pagamentos')
-        .select('mes_pagamento, ano_pagamento, valor_pago')
+        .select('mes_pagamento, ano_pagamento, valor_pago, data_pagamento')
         .eq('emprestimo_id', emprestimoId);
 
       if (pagamentosError) {
@@ -213,17 +247,21 @@ const Pagamentos = () => {
       valorEsperado = emprestimo.valor_principal * (emprestimo.taxa_juros_mensal / 100);
     }
 
-    // Gerar meses do empréstimo até hoje
-    let mesAtual = dataInicio.getMonth() + 1;
-    let anoAtual = dataInicio.getFullYear();
+    // Iniciar no mês seguinte ao da data do empréstimo
+    const inicioProximoMes = new Date(dataInicio.getFullYear(), dataInicio.getMonth() + 1, 1);
+    let mesAtual = inicioProximoMes.getMonth() + 1;
+    let anoAtual = inicioProximoMes.getFullYear();
 
     while (anoAtual < dataAtual.getFullYear() || 
            (anoAtual === dataAtual.getFullYear() && mesAtual <= dataAtual.getMonth() + 1)) {
       
       // Calcular total pago neste mês
-      const pagamentosDoMes = pagamentos.filter(p => 
-        p.mes_pagamento === mesAtual && p.ano_pagamento === anoAtual
-      );
+      const pagamentosDoMes = pagamentos.filter(p => {
+        const data = p.data_pagamento ? new Date(p.data_pagamento) : null;
+        const mes = p.mes_pagamento ?? (data ? data.getMonth() + 1 : null);
+        const ano = p.ano_pagamento ?? (data ? data.getFullYear() : null);
+        return mes === mesAtual && ano === anoAtual;
+      });
       
       const valorPago = pagamentosDoMes.reduce((total, p) => total + (p.valor_pago || 0), 0);
       const diferenca = valorEsperado - valorPago;
@@ -236,6 +274,11 @@ const Pagamentos = () => {
         status = 'parcial';
       }
 
+      const ultimoPagamento = pagamentosDoMes
+        .map((p: any) => p.data_pagamento)
+        .filter(Boolean)
+        .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+
       meses.push({
         mes: mesAtual,
         ano: anoAtual,
@@ -243,8 +286,7 @@ const Pagamentos = () => {
         valor_pago: valorPago,
         diferenca: diferenca,
         status: status,
-        data_ultimo_pagamento: pagamentosDoMes.length > 0 ? 
-          pagamentosDoMes[pagamentosDoMes.length - 1].data_pagamento : null
+        data_ultimo_pagamento: ultimoPagamento
       });
 
       // Avançar para o próximo mês
@@ -270,20 +312,17 @@ const Pagamentos = () => {
         throw new Error('Informe um valor válido.');
       }
 
-      // Obter mês e ano do pagamento
-      const dataAtual = new Date();
-      let mesPagamento: number;
-      let anoPagamento: number;
-      
-      if (mesSelecionado === 'atual') {
-        mesPagamento = dataAtual.getMonth() + 1;
-        anoPagamento = dataAtual.getFullYear();
-      } else if (mesSelecionado) {
-        mesPagamento = parseInt(mesSelecionado.split('/')[0]);
-        anoPagamento = parseInt(mesSelecionado.split('/')[1]);
-      } else {
-        throw new Error('Selecione o mês/ano do pagamento.');
+      // Obter data/mês/ano do pagamento
+      if (!mesSelecionado) {
+        throw new Error('Selecione o mês pendente.');
       }
+      if (!dataSelecionada) {
+        throw new Error('Selecione a data do pagamento.');
+      }
+      const [mStr, aStr] = mesSelecionado.split('/');
+      const mesSelecionadoNum = parseInt(mStr);
+      const anoSelecionadoNum = parseInt(aStr);
+      // Data do pagamento pode ser diferente do mês de competência (atraso/adiante)
 
       // Se for parcelado e o tipo selecionado for 'parcela', exigir seleção de parcela e quitar
       if (emprestimoSelecionado?.parcelado && formData.tipo_pagamento === 'parcela') {
@@ -299,8 +338,9 @@ const Pagamentos = () => {
           emprestimo_id: formData.emprestimo_id,
           valor_pago: valorPagoNumber,
           tipo_pagamento: 'parcela',
-          mes_pagamento: mesPagamento,
-          ano_pagamento: anoPagamento,
+          mes_pagamento: mesSelecionadoNum,
+          ano_pagamento: anoSelecionadoNum,
+          data_pagamento: new Date(dataSelecionada.getFullYear(), dataSelecionada.getMonth(), dataSelecionada.getDate(), 12, 0, 0).toISOString(),
           observacoes: `Pagamento da parcela #${parcela.numero_parcela}`,
         });
         if (pagamentoError) throw pagamentoError;
@@ -333,8 +373,9 @@ const Pagamentos = () => {
           emprestimo_id: formData.emprestimo_id,
           valor_pago: valorPagoNumber,
           tipo_pagamento: formData.tipo_pagamento,
-          mes_pagamento: mesPagamento,
-          ano_pagamento: anoPagamento,
+          mes_pagamento: mesSelecionadoNum,
+          ano_pagamento: anoSelecionadoNum,
+          data_pagamento: new Date(dataSelecionada.getFullYear(), dataSelecionada.getMonth(), dataSelecionada.getDate(), 12, 0, 0).toISOString(),
           observacoes: formData.observacoes || null,
         });
         if (pagamentoError) throw pagamentoError;
@@ -363,6 +404,7 @@ const Pagamentos = () => {
       });
       setParcelaId("");
       setMesSelecionado("");
+      await loadMesesPendentes(formData.emprestimo_id);
       loadData();
     } catch (error: any) {
       toast({
@@ -417,6 +459,7 @@ const Pagamentos = () => {
   };
 
   const valores = calcularValores();
+  const totalComJuros = valores ? Number((valores.total + (diasAtrasoCalculados > 0 ? jurosDiariosCalculados : 0)).toFixed(2)) : null;
 
   return (
     <Layout>
@@ -458,40 +501,98 @@ const Pagamentos = () => {
                   </Select>
                 </div>
 
-                {/* Seção de Seleção de Mês/Ano */}
+                {/* Seção de Seleção de Mês Pendente */}
                 <div className="space-y-2">
-                  <Label>Mês/Ano do Pagamento *</Label>
-                  <Select value={mesSelecionado} onValueChange={setMesSelecionado} required>
+                  <Label>Mês pendente *</Label>
+                  <Select
+                    value={mesSelecionado}
+                    onValueChange={(value) => {
+                      setMesSelecionado(value);
+                      // se a data selecionada não for do mês/ano escolhido, limpa
+                      if (dataSelecionada) {
+                        const mm = dataSelecionada.getMonth() + 1;
+                        const yyyy = dataSelecionada.getFullYear();
+                        const [mStr, aStr] = value.split('/');
+                        const mSel = parseInt(mStr);
+                        const aSel = parseInt(aStr);
+                        if (mm !== mSel || yyyy !== aSel) setDataSelecionada(null);
+                      }
+                    }}
+                    required={mesesPendentes.some(m => m.status !== 'pago')}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selecione o mês/ano do pagamento" />
+                      <SelectValue placeholder={mesesPendentes.some(m => m.status !== 'pago') ? "Selecione um mês pendente" : "Sem meses pendentes"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {/* Opção para mês atual */}
-                      <SelectItem value="atual">
-                        {formatMonthYear(new Date().getMonth() + 1, new Date().getFullYear())} - Mês Atual
-                      </SelectItem>
-                      
-                      {/* Meses do empréstimo */}
-                      {mesesPendentes.map((mes) => (
-                        <SelectItem key={`${mes.mes}/${mes.ano}`} value={`${mes.mes}/${mes.ano}`}>
-                          {formatMonthYear(mes.mes, mes.ano)} - {formatCurrency(mes.valor_esperado)} 
-                          <span className={`ml-2 ${getStatusColor(mes.status)}`}>
-                            ({mes.status})
-                          </span>
-                        </SelectItem>
-                      ))}
+                      {mesesPendentes
+                        .filter(m => m.status !== 'pago')
+                        .map((mes) => (
+                          <SelectItem key={`${mes.mes}/${mes.ano}`} value={`${mes.mes}/${mes.ano}`}>
+                            {formatMonthYear(mes.mes, mes.ano)} - {formatCurrency(mes.valor_esperado)}
+                            <span className={`ml-2 ${getStatusColor(mes.status)}`}>({mes.status})</span>
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <div className="text-xs text-muted-foreground">
-                    Selecione o mês/ano para o qual este pagamento se refere. Isso evita cobrança de juros diários.
+                    Selecione o mês com pendência para este pagamento.
                   </div>
+                </div>
+
+                {/* Seção de Seleção de Data (Dia/Mês/Ano) */}
+                <div className="space-y-2">
+                  <Label>Data do Pagamento *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start text-left font-normal"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dataSelecionada
+                          ? new Intl.DateTimeFormat('pt-BR').format(dataSelecionada)
+                          : "Selecionar data"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={dataSelecionada ?? undefined}
+                        onSelect={(d) => setDataSelecionada(d ?? null)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <div className="text-xs text-muted-foreground">
+                    Escolha o dia exato do pagamento. O sistema manterá juros diários se a data for após o vencimento.
+                  </div>
+                  {emprestimoSelecionado?.data_vencimento && (
+                    <div className="text-xs p-2 rounded bg-muted/50">
+                      <div>
+                        <strong>Vencimento:</strong> {new Date(emprestimoSelecionado.data_vencimento).toLocaleDateString('pt-BR')}
+                      </div>
+                      {diasAtrasoCalculados > 0 ? (
+                        <div className="text-red-600">
+                          {diasAtrasoCalculados} dia(s) de atraso • Juros diários estimados: {formatCurrency(jurosDiariosCalculados)}
+                        </div>
+                      ) : (
+                        <div className="text-green-700">Sem atraso</div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {valores && (
                   <div className="bg-muted p-3 rounded-lg space-y-1">
                     <p className="text-sm"><strong>Valor Principal:</strong> {formatCurrency(emprestimoSelecionado!.valor_principal)}</p>
                     <p className="text-sm"><strong>Juros ({emprestimoSelecionado!.taxa_juros_mensal}%):</strong> {formatCurrency(valores.juros)}</p>
-                    <p className="text-sm font-bold text-success"><strong>Total a Pagar:</strong> {formatCurrency(valores.total)}</p>
+                    <p className="text-sm font-bold text-success"><strong>Total:</strong> {formatCurrency(valores.total)}</p>
+                    {diasAtrasoCalculados > 0 && totalComJuros !== null && (
+                      <p className="text-sm font-bold text-destructive">
+                        <strong>Total com Juros Diários:</strong> {formatCurrency(totalComJuros)}
+                      </p>
+                    )}
                   </div>
                 )}
 

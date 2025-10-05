@@ -23,6 +23,10 @@ interface ClientePendente {
   data_vencimento: string;
   dias_atraso: number;
   status: string;
+  ultimo_pagamento_valor?: number;
+  ultimo_pagamento_data?: string | null;
+  ultimo_pagamento_tipo?: string | null;
+  proximo_pagamento_valor?: number;
 }
 
 const Dashboard = () => {
@@ -73,7 +77,7 @@ const Dashboard = () => {
       // Buscar pagamentos uma única vez
       const { data: pagamentos, error: pagamentosError } = await supabase
         .from("pagamentos")
-        .select("emprestimo_id, valor_pago");
+        .select("emprestimo_id, valor_pago, data_pagamento, tipo_pagamento, mes_pagamento, ano_pagamento");
 
       if (pagamentosError) throw pagamentosError;
 
@@ -136,7 +140,15 @@ const Dashboard = () => {
             );
             const venc = new Date(emp.data_vencimento);
             const hojeLocal = new Date();
-            const diasAtrasoLocal = Math.max(0, Math.floor((hojeLocal.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+            // Detecta atraso considerando último pagamento; se não há pagamento, considera hoje
+            const lastPaymentDate = pagamentosDoEmprestimo
+              .map(p => p.data_pagamento)
+              .filter(Boolean)
+              .map((d: any) => new Date(d))
+              .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+            // Se ainda há pendência (valorPendente > 0), juros correm até hoje; senão, até a data do pagamento
+            const referenciaFim = valorPendente > 0 ? hojeLocal : (lastPaymentDate || hojeLocal);
+            const diasAtrasoLocal = Math.max(0, Math.floor((referenciaFim.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
             const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
             const dailyInterest = diasAtrasoLocal > 0 && dailyRate > 0 ? Number(emp.valor_principal) * dailyRate * diasAtrasoLocal : 0;
             return sum + valorPendente + dailyInterest;
@@ -187,6 +199,12 @@ const Dashboard = () => {
             const dataVencimentoRef = proximaParcela?.data_vencimento || emp.data_vencimento;
             const venc = new Date(dataVencimentoRef);
             const diasAtraso = Math.max(0, Math.floor((hojeLocal.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24)));
+            // Último pagamento geral (não só de parcela)
+            const pagamentosDoEmprestimo = (pagamentos || []).filter(p => p.emprestimo_id === emp.id);
+            const ultimo = pagamentosDoEmprestimo
+              .slice()
+              .sort((a: any, b: any) => new Date(b.data_pagamento).getTime() - new Date(a.data_pagamento).getTime())[0] || null;
+
             return {
               id: emp.cliente_id,
               nome: emp.clientes.nome,
@@ -197,7 +215,11 @@ const Dashboard = () => {
               pagamentos_pendentes: pagamentosPendentes,
               data_vencimento: dataVencimentoRef,
               dias_atraso: diasAtraso,
-              status: emp.status || 'ativo'
+              status: emp.status || 'ativo',
+              ultimo_pagamento_valor: ultimo ? Number(ultimo.valor_pago) : undefined,
+              ultimo_pagamento_data: ultimo ? ultimo.data_pagamento : null,
+              ultimo_pagamento_tipo: ultimo ? (ultimo as any).tipo_pagamento : null,
+              proximo_pagamento_valor: valorMensal
             };
           } else {
             const pagamentosDoEmprestimo = pagamentos?.filter(p => p.emprestimo_id === emp.id) || [];
@@ -210,9 +232,19 @@ const Dashboard = () => {
               totalPago
             );
             const vencimento = new Date(emp.data_vencimento);
-            const diasAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24)));
+            const lastPaymentDate = pagamentosDoEmprestimo
+              .map(p => p.data_pagamento)
+              .filter(Boolean)
+              .map((d: any) => new Date(d))
+              .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+            const referenciaFim = valorPendente > 0 ? new Date() : (lastPaymentDate || new Date());
+            const diasAtraso = Math.max(0, Math.floor((referenciaFim.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24)));
             const dailyRate = Number((emp as any).taxa_juros_diaria_atraso || 0) / 100;
             const dailyInterest = diasAtraso > 0 && dailyRate > 0 ? Number(emp.valor_principal) * dailyRate * diasAtraso : 0;
+            const ultimo = pagamentosDoEmprestimo
+              .slice()
+              .sort((a: any, b: any) => new Date(b.data_pagamento).getTime() - new Date(a.data_pagamento).getTime())[0] || null;
+
             return {
               id: emp.cliente_id,
               nome: emp.clientes.nome,
@@ -223,7 +255,11 @@ const Dashboard = () => {
               pagamentos_pendentes: pagamentosPendentes,
               data_vencimento: emp.data_vencimento,
               dias_atraso: diasAtraso,
-              status: emp.status || 'ativo'
+              status: emp.status || 'ativo',
+              ultimo_pagamento_valor: ultimo ? Number(ultimo.valor_pago) : undefined,
+              ultimo_pagamento_data: ultimo ? ultimo.data_pagamento : null,
+              ultimo_pagamento_tipo: ultimo ? (ultimo as any).tipo_pagamento : null,
+              proximo_pagamento_valor: valorMensal
             };
           }
         }).filter(cliente => cliente.valor_pendente > 0); // Apenas clientes com valor pendente
@@ -302,14 +338,31 @@ const Dashboard = () => {
     return new Date(dateString).toLocaleDateString('pt-BR');
   };
 
-  const getStatusBadge = (status: string, diasAtraso: number) => {
-    if (diasAtraso > 0) {
-      return <Badge variant="destructive">Em Atraso ({diasAtraso} dias)</Badge>;
-    } else if (status === 'parcial') {
-      return <Badge variant="secondary">Pagamento Parcial</Badge>;
-    } else {
-      return <Badge variant="default">Em Dia</Badge>;
+  const getStatusBadge = (cliente: ClientePendente) => {
+    // Derivar status a partir do último pagamento
+    if (typeof cliente.ultimo_pagamento_valor !== 'undefined' && cliente.ultimo_pagamento_tipo) {
+      if (cliente.ultimo_pagamento_tipo === 'juros') {
+        return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Pago Juros</Badge>;
+      }
+      if (cliente.ultimo_pagamento_tipo === 'parcial' || cliente.ultimo_pagamento_tipo === 'parcela') {
+        return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Pagamento Parcial</Badge>;
+      }
+      if (cliente.ultimo_pagamento_tipo === 'total') {
+        if ((cliente.valor_pendente || 0) <= 0) {
+          return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Pagamento Total</Badge>;
+        }
+        // Pagou total da competência anterior, mas já existe nova competência em aberto
+        return <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">Pagamento Total (competência)</Badge>;
+      }
     }
+    // Sem último pagamento relevante: usar atraso
+    if (cliente.dias_atraso > 0) {
+      return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">Em Atraso ({cliente.dias_atraso} dias)</Badge>;
+    }
+    if (cliente.status === 'parcial') {
+      return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Pagamento Parcial</Badge>;
+    }
+    return <Badge className="bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">Em Dia</Badge>;
   };
 
   const statCards = [
@@ -396,7 +449,7 @@ const Dashboard = () => {
                     <div className="flex-1">
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
                         <h3 className="font-semibold text-lg">{cliente.nome}</h3>
-                        {getStatusBadge(cliente.status, cliente.dias_atraso)}
+                        {getStatusBadge(cliente)}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-muted-foreground">
                         <div>
@@ -412,9 +465,25 @@ const Dashboard = () => {
                           <span className="font-medium">Pagamentos Pendentes:</span> {cliente.pagamentos_pendentes}
                         </div>
                       </div>
-                      <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                        <span className="font-medium">Valor Mensal:</span> {formatCurrency(cliente.valor_mensal)} | 
-                        <span className="font-medium ml-2">Total Pendente:</span> {formatCurrency(cliente.valor_pendente)}
+                      <div className="mt-2 p-2 bg-muted/50 rounded text-xs space-y-1">
+                        <div>
+                          <span className="font-medium">Valor Mensal:</span> {formatCurrency(cliente.valor_mensal)}
+                          <span className="font-medium ml-2">Total Pendente:</span> {formatCurrency(cliente.valor_pendente)}
+                        </div>
+                        {typeof cliente.ultimo_pagamento_valor !== 'undefined' && (
+                          <div>
+                            <span className="font-medium">Último Pagamento:</span> {formatCurrency(cliente.ultimo_pagamento_valor)}
+                            {cliente.ultimo_pagamento_tipo && (
+                              <span className="ml-2 capitalize">({cliente.ultimo_pagamento_tipo})</span>
+                            )}
+                            {cliente.ultimo_pagamento_data && (
+                              <span className="ml-2">em {formatDate(cliente.ultimo_pagamento_data)}</span>
+                            )}
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium">Próximo Mês (previsto):</span> {formatCurrency(cliente.proximo_pagamento_valor || cliente.valor_mensal)}
+                        </div>
                       </div>
                     </div>
                     <div className="text-left sm:text-right">
